@@ -208,13 +208,7 @@ class SplashScreenActivity : ComponentActivity() {
                         overridePendingTransition(R.anim.activity_fade_in, R.anim.activity_fade_out)
                     } else {
                         ToastUtils.showText("这里是内测版吖！然鹅你好像还木有内测资格捏...")
-                        userManager.logout()
-                        startActivity(
-                            Intent(
-                                this@SplashScreenActivity,
-                                QrCodeLoginActivity::class.java
-                            )
-                        )
+                        startActivity(Intent(this@SplashScreenActivity, MainActivity::class.java))
                         finish()
                         overridePendingTransition(R.anim.activity_fade_in, R.anim.activity_fade_out)
                     }
