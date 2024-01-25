@@ -46,7 +46,9 @@ jobs:
           gradle-version: 8.2
 
       - name: Setup git submodule
-        run: git submodule update --remote
+        run: |
+          git submodule update --remote
+          ls libs/Bilibili-Kotlin-SDK 
 
       - name: Change wrapper permissions
         run: chmod +x ./gradlew
