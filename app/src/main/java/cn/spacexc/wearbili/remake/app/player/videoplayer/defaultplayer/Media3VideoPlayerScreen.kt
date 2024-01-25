@@ -36,7 +36,6 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +88,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -105,6 +105,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import cn.spacexc.wearbili.common.domain.log.TAG
@@ -119,6 +120,7 @@ import cn.spacexc.wearbili.remake.common.ui.IconText
 import cn.spacexc.wearbili.remake.common.ui.clickAlpha
 import cn.spacexc.wearbili.remake.common.ui.clickVfx
 import cn.spacexc.wearbili.remake.common.ui.isRound
+import cn.spacexc.wearbili.remake.common.ui.rememberMutableInteractionSource
 import cn.spacexc.wearbili.remake.common.ui.spx
 import cn.spacexc.wearbili.remake.common.ui.theme.wearbiliFontFamily
 import cn.spacexc.wearbili.remake.common.ui.wearBiliAnimatedContentSize
@@ -145,6 +147,7 @@ enum class VideoDisplaySurface {
 sealed class VideoPlayerPages(val weight: Int) {
     data object Main : VideoPlayerPages(0)
     data object Settings : VideoPlayerPages(1)
+    data object DanmakuSettings : VideoPlayerPages(2)
 }
 
 enum class VideoPlayerSurfaceRatio(val ratioName: String) {
@@ -176,6 +179,9 @@ fun Activity.Media3PlayerScreen(
 ) {
     //region variables
     val localDensity = LocalDensity.current
+    var playerSurfaceSize by remember {
+        mutableStateOf(Size(1f, 1f))
+    }
     val currentSubtitleText by viewModel.currentSubtitleText.collectAsState(initial = null)
     val currentPlayerPosition by viewModel.currentPlayProgress.collectAsState(initial = 0)
     var currentPlayerSurfaceRatio: VideoPlayerSurfaceRatio by remember {
@@ -223,19 +229,36 @@ fun Activity.Media3PlayerScreen(
         currentVolume = dragVolume
     })
     val progressDraggableState = rememberDraggableState(onDelta = {
+        val duration =
+            if (isCacheVideo) viewModel.cachePlayer.duration else viewModel.httpPlayer.duration
         if (draggedProgress + (it * dragSensibility).toLong() < 0) {
             draggedProgress = 0
-        } else if (draggedProgress + (it * dragSensibility).toLong() > viewModel.player.duration) {
-            draggedProgress = viewModel.player.duration
+        } else if (draggedProgress + (it * dragSensibility).toLong() > duration) {
+            draggedProgress = duration
         } else {
             draggedProgress += (it * dragSensibility).toLong()
         }
     })
-    val progressBarThumbScale by animateFloatAsState(targetValue = if (isDraggingProgress) 1.5f else 1f)
-    val roundScreenControllerAlpha by animateIntAsState(targetValue = if (isRound() && viewModel.isVideoControllerVisible) 127/*255/2*/ else 0)
-    val subtitleOffset by animateDpAsState(targetValue = if (viewModel.isVideoControllerVisible) controllerProgressColumnHeight - 14.dp else if (viewModel.videoChapters.isNotEmpty()) 18.dp else 6.dp)  //18:视频章节字幕条高度  6:普通进度条
-    val dragIndicatorOffset by animateDpAsState(targetValue = if (viewModel.isVideoControllerVisible) controllerTitleColumnHeight else 8.dp)
-    val subtitlePadding by animateDpAsState(targetValue = if (viewModel.isVideoControllerVisible) 0.dp else 6.dp)
+    val progressBarThumbScale by animateFloatAsState(
+        targetValue = if (isDraggingProgress) 1.5f else 1f,
+        label = ""
+    )
+    val roundScreenControllerAlpha by animateIntAsState(
+        targetValue = if (isRound() && viewModel.isVideoControllerVisible) 127/*255/2*/ else 0,
+        label = ""
+    )
+    val subtitleOffset by animateDpAsState(
+        targetValue = if (viewModel.isVideoControllerVisible) controllerProgressColumnHeight - 14.dp else if (viewModel.videoChapters.isNotEmpty()) 18.dp else 6.dp,
+        label = ""
+    )  //18:视频章节字幕条高度  6:普通进度条
+    val dragIndicatorOffset by animateDpAsState(
+        targetValue = if (viewModel.isVideoControllerVisible) controllerTitleColumnHeight else 8.dp,
+        label = ""
+    )
+    val subtitlePadding by animateDpAsState(
+        targetValue = if (viewModel.isVideoControllerVisible) 0.dp else 6.dp,
+        label = ""
+    )
     var currentPage: VideoPlayerPages by remember {
         mutableStateOf(VideoPlayerPages.Main)
     }
@@ -251,17 +274,41 @@ fun Activity.Media3PlayerScreen(
 
     val danmakuCanvasState = rememberDanmakuCanvasState { currentPlayerPosition }
     val textMeasurer = rememberTextMeasurer()
-    var isDanmakuVisible by remember {
+    var isNormalDanmakuVisible by remember {
+        mutableStateOf(true)
+    }
+    var isAdvanceDanmakuVisible by remember {
         mutableStateOf(true)
     }
     val danmakuButtonColor by animateColorAsState(
-        targetValue = if (isDanmakuVisible) BilibiliPink else Color(
+        targetValue = if (isNormalDanmakuVisible) BilibiliPink else Color(
             38,
             38,
             38,
             255
         ), label = ""
     )
+    val advanceDanmakuButtonColor by animateColorAsState(
+        targetValue = if (isAdvanceDanmakuVisible) BilibiliPink else Color(
+            38,
+            38,
+            38,
+            255
+        ), label = ""
+    )
+
+    var danmakuCanvasAlpha by remember {
+        mutableFloatStateOf(1f)
+    }
+    var danmakuCanvasDisplayPercent by remember {
+        mutableFloatStateOf(1f)
+    }
+    var danmakuTextScale by remember {
+        mutableFloatStateOf(1f)
+    }
+    var danmakuBlockLevel by remember {
+        mutableIntStateOf(0)
+    }
     //endregion
 
     //region: For Danmaku
@@ -317,17 +364,22 @@ fun Activity.Media3PlayerScreen(
             }
                 .animateContentSize()
                 .align(Alignment.Center)
+                .onSizeChanged {
+                    playerSurfaceSize = it.toSize()
+                }
         ) {
             when (displaySurface) {
                 VideoDisplaySurface.TEXTURE_VIEW -> {
                     AndroidView(factory = { TextureView(it) }) { textureView ->
-                        viewModel.player.setVideoTextureView(textureView)
+                        viewModel.httpPlayer.setVideoTextureView(textureView)
+                        viewModel.cachePlayer.setVideoTextureView(textureView)
                     }
                 }
 
                 VideoDisplaySurface.SURFACE_VIEW -> {
                     AndroidView(factory = { SurfaceView(it) }) { surfaceView ->
-                        viewModel.player.setVideoSurfaceView(surfaceView)
+                        viewModel.httpPlayer.setVideoSurfaceView(surfaceView)
+                        viewModel.cachePlayer.setVideoSurfaceView(surfaceView)
                     }
                 }
             }
@@ -335,14 +387,21 @@ fun Activity.Media3PlayerScreen(
         //endregion
 
         //region danmaku surface
-        AnimatedVisibility(visible = isDanmakuVisible, enter = fadeIn(), exit = fadeOut()) {
-            DanmakuCanvas(
-                state = danmakuCanvasState,
-                textMeasurer = textMeasurer,
-                playSpeed = playBackSpeed / 100f,
-                videoAspectRatio = viewModel.videoPlayerAspectRatio
-            )
-        }
+        DanmakuCanvas(
+            state = danmakuCanvasState,
+            textMeasurer = textMeasurer,
+            playSpeed = playBackSpeed / 100f,
+            videoAspectRatio = viewModel.videoPlayerAspectRatio,
+            displayAreaPercent = danmakuCanvasDisplayPercent,
+            displayFrameRate = true,
+            blockLevel = danmakuBlockLevel,
+            modifier = Modifier.alpha(danmakuCanvasAlpha),
+            textScale = danmakuTextScale,
+            uploaderAvatarUrl = viewModel.videoInfo?.data?.owner?.face ?: "",
+            isAdvanceDanmakuVisible = isAdvanceDanmakuVisible,
+            isNormalDanmakuVisible = isNormalDanmakuVisible,
+            videoDisplaySurfaceSize = playerSurfaceSize
+        )
 
         //endregion
         Box(
@@ -400,9 +459,19 @@ fun Activity.Media3PlayerScreen(
                                                     isDraggingProgress = true
                                                 },
                                                 onDragStopped = {
-                                                    viewModel.player.seekTo(draggedProgress)
+                                                    if (isCacheVideo) {
+                                                        viewModel.cachePlayer.seekTo(draggedProgress)
+                                                    } else {
+                                                        viewModel.httpPlayer.seekTo(draggedProgress)
+                                                    }
+
                                                     danmakuCanvasState.pause()
-                                                    danmakuCanvasState.seekTo(draggedProgress)
+                                                    danmakuCanvasState.seekTo(
+                                                        time = draggedProgress,
+                                                        textMeasurer = textMeasurer,
+                                                        displayWidth = playerSurfaceSize.width.toInt(),
+                                                        textScale = danmakuTextScale,
+                                                    )
                                                     viewModel.currentStat = PlayerStats.Buffering
                                                     isDraggingProgress = false
                                                 }
@@ -424,7 +493,11 @@ fun Activity.Media3PlayerScreen(
                                                     viewModel.isVideoControllerVisible =
                                                         !viewModel.isVideoControllerVisible
                                                 }, onDoubleTap = {
-                                                    if (viewModel.player.isPlaying) viewModel.player.pause() else viewModel.player.play()
+                                                    if (isCacheVideo) {
+                                                        if (viewModel.cachePlayer.isPlaying) viewModel.cachePlayer.pause() else viewModel.cachePlayer.play()
+                                                    } else {
+                                                        if (viewModel.httpPlayer.isPlaying) viewModel.httpPlayer.pause() else viewModel.httpPlayer.play()
+                                                    }
                                                 })
                                             }
                                     ) {
@@ -457,7 +530,7 @@ fun Activity.Media3PlayerScreen(
                                                             with(localDensity) { it.height.toDp() }
                                                     }
                                                     .clickable(
-                                                        interactionSource = MutableInteractionSource(),
+                                                        interactionSource = rememberMutableInteractionSource(),
                                                         indication = null,
                                                         onClick = onBack
                                                     ),
@@ -547,9 +620,22 @@ fun Activity.Media3PlayerScreen(
                                                         draggedProgress = it.toLong()
                                                     },
                                                     onValueChangeFinished = {
-                                                        viewModel.player.seekTo(draggedProgress)
+                                                        if (isCacheVideo) {
+                                                            viewModel.cachePlayer.seekTo(
+                                                                draggedProgress
+                                                            )
+                                                        } else {
+                                                            viewModel.httpPlayer.seekTo(
+                                                                draggedProgress
+                                                            )
+                                                        }
                                                         danmakuCanvasState.pause()
-                                                        danmakuCanvasState.seekTo(draggedProgress)
+                                                        danmakuCanvasState.seekTo(
+                                                            time = draggedProgress,
+                                                            textMeasurer = textMeasurer,
+                                                            displayWidth = playerSurfaceSize.width.toInt(),
+                                                            textScale = danmakuTextScale,
+                                                        )
                                                         viewModel.currentStat =
                                                             PlayerStats.Buffering
                                                         isDraggingProgress = false
@@ -560,7 +646,7 @@ fun Activity.Media3PlayerScreen(
                                                     ),
                                                     thumb = {
                                                         /*SliderDefaults.Thumb(
-                                                            interactionSource = MutableInteractionSource(),
+                                                            interactionSource = rememberMutableInteractionSource(),
                                                             thumbSize = DpSize(12.dp, 12.dp),
                                                             modifier = Modifier
                                                                 .offset(
@@ -615,11 +701,17 @@ fun Activity.Media3PlayerScreen(
                                                 ) {
                                                     if (!isRound()) {
                                                         Image(
-                                                            painter = painterResource(id = if (viewModel.player.isPlaying) drawable.img_pause_icon else drawable.img_play_icon),
+                                                            painter = painterResource(id = if (if (isCacheVideo) viewModel.cachePlayer.isPlaying else viewModel.httpPlayer.isPlaying) drawable.img_pause_icon else drawable.img_play_icon),
                                                             contentDescription = null,
                                                             modifier = Modifier
                                                                 //.clickVfx { if (viewModel.player.isPlaying) viewModel.player.pause() else viewModel.player.play() }
-                                                                .clickable { if (viewModel.player.isPlaying) viewModel.player.pause() else viewModel.player.play() }
+                                                                .clickable {
+                                                                    if (isCacheVideo) {
+                                                                        if (viewModel.cachePlayer.isPlaying) viewModel.cachePlayer.pause() else viewModel.cachePlayer.play()
+                                                                    } else {
+                                                                        if (viewModel.httpPlayer.isPlaying) viewModel.httpPlayer.pause() else viewModel.httpPlayer.play()
+                                                                    }
+                                                                }
                                                                 .size(18.dp)
 
                                                         )
@@ -629,10 +721,27 @@ fun Activity.Media3PlayerScreen(
                                                          */
                                                     }
 
+                                                    PlayerQuickActionButton(
+                                                        onClick = {
+                                                            isAdvanceDanmakuVisible =
+                                                                !isAdvanceDanmakuVisible
+                                                        },
+                                                        color = advanceDanmakuButtonColor
+                                                    ) {
+                                                        Icon(
+                                                            painter = painterResource(id = drawable.icon_advance_danmaku),
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier
+                                                                .size(14.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(4.dp))
                                                     //region player quick actions
                                                     PlayerQuickActionButton(
                                                         onClick = {
-                                                            isDanmakuVisible = !isDanmakuVisible
+                                                            isNormalDanmakuVisible =
+                                                                !isNormalDanmakuVisible
                                                         },
                                                         color = danmakuButtonColor
                                                     ) {
@@ -729,13 +838,24 @@ fun Activity.Media3PlayerScreen(
                                                                 .weight(chapter.first.toFloat())
                                                                 .fillMaxWidth()
                                                                 .clickable(
-                                                                    interactionSource = MutableInteractionSource(),
+                                                                    interactionSource = rememberMutableInteractionSource(),
                                                                     indication = null
                                                                 ) {
-                                                                    viewModel.player.seekTo(chapter.third * 1000L)
+                                                                    if (isCacheVideo) {
+                                                                        viewModel.cachePlayer.seekTo(
+                                                                            chapter.third * 1000L
+                                                                        )
+                                                                    } else {
+                                                                        viewModel.httpPlayer.seekTo(
+                                                                            chapter.third * 1000L
+                                                                        )
+                                                                    }
                                                                     danmakuCanvasState.pause()
                                                                     danmakuCanvasState.seekTo(
-                                                                        chapter.third * 1000L
+                                                                        time = chapter.third * 1000L,
+                                                                        textMeasurer = textMeasurer,
+                                                                        displayWidth = playerSurfaceSize.width.toInt(),
+                                                                        textScale = danmakuTextScale,
                                                                     )
                                                                     viewModel.currentStat =
                                                                         PlayerStats.Buffering
@@ -774,11 +894,17 @@ fun Activity.Media3PlayerScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Image(
-                                                    painter = painterResource(id = if (viewModel.player.isPlaying) drawable.img_pause_icon else drawable.img_play_icon),
+                                                    painter = painterResource(id = if (if (isCacheVideo) viewModel.cachePlayer.isPlaying else viewModel.httpPlayer.isPlaying) drawable.img_pause_icon else drawable.img_play_icon),
                                                     contentDescription = null,
                                                     modifier = Modifier
                                                         //.clickVfx { if (viewModel.player.isPlaying) viewModel.player.pause() else viewModel.player.play() }
-                                                        .clickable { if (viewModel.player.isPlaying) viewModel.player.pause() else viewModel.player.play() }
+                                                        .clickable {
+                                                            if (isCacheVideo) {
+                                                                if (viewModel.cachePlayer.isPlaying) viewModel.cachePlayer.pause() else viewModel.cachePlayer.play()
+                                                            } else {
+                                                                if (viewModel.httpPlayer.isPlaying) viewModel.httpPlayer.pause() else viewModel.httpPlayer.play()
+                                                            }
+                                                        }
                                                         .size(18.dp)
 
                                                 )
@@ -1025,6 +1151,20 @@ fun Activity.Media3PlayerScreen(
                                 fontWeight = FontWeight.Bold
                             )
 
+                            PlayerSettingActionItem(
+                                name = "弹幕选项",
+                                description = "调整弹幕显示设置",
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(id = drawable.icon_danmaku),
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }) {
+                                currentPage = VideoPlayerPages.DanmakuSettings
+                            }
+
                             PlayerSetting(itemIcon = {
                                 Icon(
                                     imageVector = Icons.Outlined.Speed,
@@ -1038,7 +1178,7 @@ fun Activity.Media3PlayerScreen(
                                         text = i.toFloat().div(100).toString() + "x",
                                         isSelected = playBackSpeed == i
                                     ) {
-                                        viewModel.player.setPlaybackSpeed(
+                                        viewModel.httpPlayer.setPlaybackSpeed(
                                             i.toFloat().div(100)
                                         )
                                         playBackSpeed = i
@@ -1050,7 +1190,7 @@ fun Activity.Media3PlayerScreen(
                                         text = i.toFloat().div(100).toString() + "x",
                                         isSelected = playBackSpeed == i
                                     ) {
-                                        viewModel.player.setPlaybackSpeed(
+                                        viewModel.httpPlayer.setPlaybackSpeed(
                                             i.toFloat().div(100)
                                         )
                                         playBackSpeed = i
@@ -1176,7 +1316,7 @@ fun Activity.Media3PlayerScreen(
                                     modifier = Modifier.offset(y = (-6).dp),
                                     thumb = {
                                         SliderDefaults.Thumb(
-                                            interactionSource = MutableInteractionSource(),
+                                            interactionSource = rememberMutableInteractionSource(),
                                             thumbSize = DpSize(12.dp, 12.dp),
                                             modifier = Modifier
                                                 .offset(
@@ -1191,6 +1331,237 @@ fun Activity.Media3PlayerScreen(
                                     }
                                 )
                             }
+                            //endregion
+                        }
+                    }
+
+                    VideoPlayerPages.DanmakuSettings -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            //region setting items
+                            IconText(
+                                text = "",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                modifier = Modifier
+                                    .clickable { currentPage = VideoPlayerPages.Settings }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBackIosNew,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                            }
+                            androidx.compose.material3.Text(
+                                text = "弹幕选项",
+                                color = Color.White,
+                                fontFamily = wearbiliFontFamily,
+                                fontSize = 20.spx,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Column {
+                                Text(
+                                    text = "不透明度",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .alpha(0.9f)
+                                )
+
+                                Row {
+                                    androidx.compose.material3.Slider(
+                                        value = danmakuCanvasAlpha,
+                                        onValueChange = {
+                                            danmakuCanvasAlpha = it
+                                        },
+                                        valueRange = 0f..1f,
+                                        colors = SliderDefaults.colors(
+                                            activeTrackColor = BilibiliPink,
+                                            thumbColor = Color.White
+                                        ),
+                                        modifier = Modifier
+                                            .offset(y = (-6).dp)
+                                            .weight(1f),
+                                        thumb = {
+                                            SliderDefaults.Thumb(
+                                                interactionSource = rememberMutableInteractionSource(),
+                                                thumbSize = DpSize(12.dp, 12.dp),
+                                                modifier = Modifier
+                                                    .offset(
+                                                        y = 4.dp,
+                                                        x = 2.dp
+                                                    ),
+
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = Color.White
+                                                )
+                                            )
+                                        }
+                                    )
+                                    Text(
+                                        text = "${danmakuCanvasAlpha.times(100).toInt()}%",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .alpha(0.9f)
+                                    )
+                                }
+                            }
+
+                            Column {
+                                Text(
+                                    text = "显示区域",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .alpha(0.9f)
+                                )
+
+                                Row {
+                                    androidx.compose.material3.Slider(
+                                        value = danmakuCanvasDisplayPercent,
+                                        onValueChange = {
+                                            danmakuCanvasDisplayPercent = it
+                                        },
+                                        valueRange = 0f..1f,
+                                        colors = SliderDefaults.colors(
+                                            activeTrackColor = BilibiliPink,
+                                            thumbColor = Color.White
+                                        ),
+                                        modifier = Modifier
+                                            .offset(y = (-6).dp)
+                                            .weight(1f),
+                                        thumb = {
+                                            SliderDefaults.Thumb(
+                                                interactionSource = rememberMutableInteractionSource(),
+                                                thumbSize = DpSize(12.dp, 12.dp),
+                                                modifier = Modifier
+                                                    .offset(
+                                                        y = 4.dp,
+                                                        x = 2.dp
+                                                    ),
+
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = Color.White
+                                                )
+                                            )
+                                        }
+                                    )
+                                    Text(
+                                        text = "${danmakuCanvasDisplayPercent.times(100).toInt()}%",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .alpha(0.9f)
+                                    )
+                                }
+                            }
+
+                            Column {
+                                Text(
+                                    text = "字体缩放",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .alpha(0.9f)
+                                )
+
+                                Row {
+                                    androidx.compose.material3.Slider(
+                                        value = danmakuTextScale,
+                                        onValueChange = {
+                                            danmakuTextScale = it
+                                        },
+                                        valueRange = 0.5f..2f,
+                                        colors = SliderDefaults.colors(
+                                            activeTrackColor = BilibiliPink,
+                                            thumbColor = Color.White
+                                        ),
+                                        modifier = Modifier
+                                            .offset(y = (-6).dp)
+                                            .weight(1f),
+                                        thumb = {
+                                            SliderDefaults.Thumb(
+                                                interactionSource = rememberMutableInteractionSource(),
+                                                thumbSize = DpSize(12.dp, 12.dp),
+                                                modifier = Modifier
+                                                    .offset(
+                                                        y = 4.dp,
+                                                        x = 2.dp
+                                                    ),
+
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = Color.White
+                                                )
+                                            )
+                                        }
+                                    )
+                                    Text(
+                                        text = "${danmakuTextScale.times(100).toInt()}%",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .alpha(0.9f)
+                                    )
+                                }
+                            }
+
+                            Column {
+                                Text(
+                                    text = "屏蔽等级",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .alpha(0.9f)
+                                )
+
+                                Row {
+                                    androidx.compose.material3.Slider(
+                                        value = danmakuBlockLevel.toFloat(),
+                                        onValueChange = {
+                                            danmakuBlockLevel = it.roundToInt()
+                                        },
+                                        valueRange = 0f..10f,
+                                        steps = 10,
+                                        colors = SliderDefaults.colors(
+                                            activeTrackColor = BilibiliPink,
+                                            thumbColor = Color.White
+                                        ),
+                                        modifier = Modifier
+                                            .offset(y = (-6).dp)
+                                            .weight(1f),
+                                        thumb = {
+                                            SliderDefaults.Thumb(
+                                                interactionSource = rememberMutableInteractionSource(),
+                                                thumbSize = DpSize(12.dp, 12.dp),
+                                                modifier = Modifier
+                                                    .offset(
+                                                        y = 4.dp,
+                                                        x = 2.dp
+                                                    ),
+
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = Color.White
+                                                )
+                                            )
+                                        }
+                                    )
+                                    Text(
+                                        text = "等级${danmakuBlockLevel}",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .alpha(0.9f)
+                                    )
+                                }
+                            }
+
                             //endregion
                         }
                     }
