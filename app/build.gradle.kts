@@ -8,6 +8,10 @@ plugins {
     id("kotlin-parcelize")
 }
 
+kotlin {
+    jvmToolchain(8)
+}
+
 android {
     namespace = "cn.spacexc.wearbili.remake"
     compileSdk = libs.versions.compileSdk.get().toInt()
