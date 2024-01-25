@@ -47,7 +47,9 @@ jobs:
 
       - name: Setup git submodule
         run: |
-          git submodule update --remote
+          cd libs
+          rm -rf Bilibili-Kotlin-SDK
+          git clone https://github.com/SpaceXC/Bilibili-Kotlin-SDK Bilibili-Kotlin-SDK
           ls libs/Bilibili-Kotlin-SDK 
 
       - name: Change wrapper permissions
